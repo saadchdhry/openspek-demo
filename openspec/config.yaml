@@ -1,0 +1,49 @@
+schema: spec-driven
+
+context: |
+  Splitr is a shared-expense tracker: a small group records who paid for what,
+  and the app works out who owes whom.
+
+  Tech stack: TypeScript, Node.js, PostgreSQL. HTTP API only, no UI in scope.
+  Money is stored as integer minor units (cents), never floats.
+  Domain: personal finance for small trusted groups (housemates, trips).
+
+  Conventions:
+  - Capabilities are kebab-case and map one-to-one to a spec directory.
+  - Requirements are written with SHALL and always carry at least one scenario.
+  - Prefer stating observable API behavior over internal implementation detail.
+
+  Out of scope for now: authentication, notifications, payment execution.
+  Splitr records what is owed; it never moves money.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
