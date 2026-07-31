@@ -1,2 +1,7 @@
 node_modules/
 .DS_Store
+
+# Local agent + editor config, regenerated per machine.
+# .claude/ is recreated by `openspec init --tools claude`.
+.claude/
+.obsidian/
