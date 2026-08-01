@@ -1,335 +1,474 @@
-# OpenSpec Demo: Run of Show
+# OpenSpec: Lifecycle and Command Walkthrough
 
-**Goal of this demo:** show how OpenSpec turns "vibe prompting a coding agent" into a reviewable, versioned, spec-first workflow. The audience should leave able to answer three questions:
+**Verified against `@fission-ai/openspec` v1.7.0 on 2026-07-31.** Every command, output, and path below was executed in this repository. Where the tool surprised me, the surprise is written down rather than smoothed over. Where I have not verified something, it is listed as unverified rather than asserted.
 
-1. Where does the *current truth* about the system live? (`openspec/specs/`)
-2. Where does a *proposed change* live before it is real? (`openspec/changes/<change-id>/`)
-3. What makes a change "real"? (implement, then `archive`, which folds the delta into the specs)
+This document does two jobs:
 
-**Important scope note:** we are **not** writing any application code in this demo. We only write specifications and walk the OpenSpec lifecycle. Every time someone asks "but where's the app?", that is the point being made: the spec is the artifact under review, not the code.
+- **Part 1 to 4** walk the lifecycle stage by stage, showing which commands belong at each stage and why.
+- **Part 5 onward** is reference: every command, when to reach for it, and the sharp edges.
 
-**Demo app:** **Splitr**, an expense splitter (Splitwise-lite). Three capabilities: `group-management`, `expense-recording`, `settlement`. The demo specs two changes against it:
-
-1. **`add-expense-splitting`** — create a group, record an expense, split it evenly, see who owes whom.
-2. **`add-multi-currency`** — expenses can be recorded in any currency, which **modifies** the existing settlement requirement rather than merely adding to it.
-
-Alternates, if this audience is wrong for it, are in [Appendix A](#appendix-a-candidate-demo-apps).
-
-**Target runtime:** 15 to 20 minutes, plus 5 for questions.
+The demo app is **Splitr**, a shared-expense tracker. We write **no application code**. Only specifications. Every time someone asks "but where's the app?", that is the point being made: the spec is the artifact under review.
 
 ---
 
-## Pre-demo checklist
+## Part 1: The model
 
-Do all of this the day before, not live.
+Two directories, one idea.
 
-- [ ] Node.js installed (`node --version`).
-- [ ] Decide install path: `npm i -g @fission-ai/openspec` or run via `npx`. Confirm which one you will type on stage and use it consistently.
-- [ ] Run `openspec --help` and **reconcile every command in this file against the actual help output.** Command names and flags below are written from memory of the tool's workflow and may have drifted. Fix this document, then rehearse.
-- [ ] Claude Code (or your assistant of choice) open in this directory, with the OpenSpec slash commands available after `init`.
-- [ ] Terminal font size bumped. Two panes: terminal on the left, file tree / editor on the right.
-- [ ] A throwaway copy of this repo so you can reset with `git checkout .` between rehearsals.
-- [ ] Rehearse the deliberate-failure beat (Beat 6). It is the best beat and the easiest to fumble.
-
-**Reset command between runs:**
-
-```bash
-rm -rf openspec && git checkout . 2>/dev/null; ls -la
-```
-
----
-
-## The one-slide mental model (say this before touching the keyboard)
-
-> Two directories. `specs/` is **what is true today**. `changes/` is **what someone is proposing**. A proposal is a *delta* against the specs, not a rewrite of them. You review the delta like a pull request. When the work is done, you archive the change, and the delta gets folded into `specs/`, which becomes the new truth.
-
-Draw it on the whiteboard if you have one:
+> `specs/` is **what is true today**. `changes/` is **what someone is proposing**. A proposal is a *delta* against the specs, not a rewrite of them. You review the delta like a pull request. When the work is done you archive it, the delta folds into `specs/`, and that becomes the new truth.
 
 ```
 openspec/
-├── project.md              # conventions, stack, house rules
+├── config.yaml             # schema choice, project context, per-artifact rules
 ├── specs/                  # CURRENT truth: what IS built
 │   └── <capability>/spec.md
 └── changes/                # PROPOSED: what SHOULD change
-    └── <change-id>/
-        ├── proposal.md     # why, what, impact
-        ├── tasks.md        # implementation checklist
-        ├── design.md       # (optional) for non-obvious technical calls
-        └── specs/<capability>/spec.md   # the DELTA
+    ├── <change-id>/
+    │   ├── .openspec.yaml  # schema, created date, optional skip_specs
+    │   ├── proposal.md     # why & what
+    │   ├── specs/<capability>/spec.md   # the DELTA
+    │   ├── design.md       # how (conditional)
+    │   └── tasks.md        # implementation checklist
+    └── archive/
+        └── 2026-07-31-<change-id>/      # date-stamped on archive
 ```
+
+### The five stages
+
+| Stage | What exists | Commands that matter here |
+|---|---|---|
+| **0. Setup** | nothing | `init`, then fill `config.yaml` |
+| **1. Proposed** | `proposal.md` only | `new change`, `status`, `instructions` |
+| **2. Specified** | delta specs written | `validate`, `show --deltas-only` |
+| **3. In progress** | design + tasks, boxes being ticked | `list`, `status`, `/opsx:apply` |
+| **4. Archived** | folded into `specs/` | `archive`, `list --specs` |
+
+A change moves forward only. There is no "unarchive".
 
 ---
 
-## Beat 1: The empty room (1 min)
+## Part 2: This repo is the fixture
 
-**Say:** "This is a completely empty directory. No code, no README, nothing."
-
-**Run:**
-
-```bash
-ls -la
-```
-
-**Point at:** nothing. That is the point. We are going to establish what we are building before anything exists to argue about.
-
-**Landmine:** do not let this beat run long. It is a setup beat.
-
----
-
-## Beat 2: `init` (1 min)
-
-**Say:** "One command bootstraps the workflow and wires up my AI assistant."
-
-**Run:**
-
-```bash
-openspec init
-```
-
-**Point at:**
-
-- The generated `openspec/` tree.
-- The assistant instruction file it writes or updates (`AGENTS.md` / `CLAUDE.md`). Open it for five seconds and say: "This is the part that matters. The rules of the workflow are now in the agent's context on every single turn. I am not re-explaining my process in each prompt."
-
-**Landmine:** if `init` prompts for which assistants to configure, know your answer in advance.
-
----
-
-## Beat 3: Teach it the project (2 min)
-
-**Say:** "Before any feature, I tell it about the project once."
-
-**Open and fill:** `openspec/project.md` with the chosen app's purpose, stack, and conventions. Keep it to ten lines on screen. Read two lines aloud, not all of them.
-
-**The line to land:** "Everything in here is context the agent stops guessing about. This is the file that stops it from inventing a Redis dependency at 2am."
-
----
-
-## Beat 4: The first proposal (3 min)
-
-**Say:** "Now I ask for a feature. Watch what I get back: not code."
-
-**Run (in Claude Code):**
-
-```
-/openspec:proposal Users can create a group, add members, record an expense paid by one member, and split it evenly across the group. Show each member's net balance.
-```
-
-Let it work. While it runs, narrate what it is doing: reading `project.md`, checking existing specs (there are none yet), and drafting a change folder.
-
-**Then run:**
+Rather than a single happy path, this repo is parked with a change at **every** stage, so each command has something real to show. Run this first:
 
 ```bash
 openspec list
 ```
 
-**Point at:** the change ID now sitting in `changes/`.
+```
+Changes:
+  refactor-split-engine      5/15 tasks    <relative time>
+  add-settlement-history     5/17 tasks    <relative time>
+  add-expense-editing        No tasks      <relative time>
+```
 
-**Landmine:** the agent may produce a change ID different from what you rehearsed. Do not fight it. Copy the actual ID into the following commands.
+```bash
+openspec list --specs
+```
+
+```
+Specs:
+  expense-recording     requirements 7
+  group-management      requirements 5
+  settlement            requirements 4
+```
+
+| Change | Stage | Why it's here |
+|---|---|---|
+| `add-expense-editing` | **Proposed** | Proposal only. Deliberately fails validation. |
+| `add-settlement-history` | **In progress** | All four artifacts, 5/17 tasks. Has a `MODIFIED` delta. |
+| `refactor-split-engine` | **In progress, spec-exempt** | `skip_specs: true`. Zero deltas, still valid. |
+| `2026-07-31-add-expense-splitting` | **Archived** | Created all three capabilities. |
+| `2026-07-31-add-multi-currency` | **Archived** | `MODIFIED` + `REMOVED` against existing truth. |
+
+The git history is a second fixture, one commit per stage:
+
+```bash
+git log --oneline
+```
 
 ---
 
-## Beat 5: Read the proposal out loud (3 min)
+## Part 3: Walking the lifecycle
 
-This is the heart of the demo. Slow down here.
+### Stage 0: Setup
 
-**Open, in this order:**
+```bash
+openspec init --tools claude
+```
 
-1. `changes/<id>/proposal.md` — Why / What Changes / Impact. Say: "This is the part a product person can review."
-2. `changes/<id>/specs/<capability>/spec.md` — the delta. Say: "This is the part an engineer reviews."
-3. `changes/<id>/tasks.md` — the checklist. Say: "This is the part the agent will work through."
+```
+OpenSpec Setup Complete
+Created: Claude Code
+6 skills and 6 commands in .claude/
+Config: openspec/config.yaml (schema: spec-driven)
+```
 
-**Point at the delta format specifically.** Read one requirement and one scenario aloud:
+**`init` does not scaffold `specs/` or `changes/`.** It creates exactly one file under `openspec/`: `config.yaml`. The directories appear when they have something to hold. If you promised the audience a tree, you will be standing in front of a single YAML file.
+
+`--tools` accepts `all`, `none`, or a comma-separated list of 33 assistants (cursor, codex, gemini, github-copilot, cline, kiro, zcode, and so on), plus `windsurf` as an accepted alias for `devin`. The `openspec/` directory is identical whichever you pick; only the generated command files differ.
+
+**Then teach it the project once.** There is **no `project.md`** — context lives in `openspec/config.yaml`:
+
+```yaml
+schema: spec-driven
+
+context: |
+  Splitr is a shared-expense tracker...
+  Money is stored as integer minor units (cents), never floats.
+
+# rules:          per-artifact constraints, e.g. "always include a Non-goals section"
+# operations:     per-operation guidance for apply and archive
+```
+
+**When to revisit:** whenever the agent gets a convention wrong twice. That is a `config.yaml` gap, not a prompting problem.
+
+### Stage 1: Proposed
+
+```bash
+openspec new change add-expense-editing
+openspec status --change add-expense-editing
+```
+
+```
+Progress: 1/4 artifacts complete
+
+[x] proposal
+[ ] specs
+[ ] design
+[-] tasks (blocked by: specs, design)
+```
+
+Markers: `[ ]` ready, `[-]` blocked, `[x]` done, `[~]` skipped.
+
+**This is the most under-appreciated thing OpenSpec does.** The workflow is a dependency graph, not a checklist. You physically cannot write the task list before writing down what the thing should do. That ordering is the whole argument for spec-driven development, and it is enforced rather than suggested.
+
+Now validate a proposal-only change:
+
+```bash
+openspec validate add-expense-editing --strict
+```
+
+```
+✗ [ERROR] file: Change must have at least one delta. No deltas found.
+  ... If this change intentionally modifies no specs (pure refactor, tooling,
+  docs), set "skip_specs: true" in the change's .openspec.yaml instead.
+```
+
+**A change at Stage 1 is supposed to fail validation.** Failing here means "not finished", not "broken". Do not wire `openspec validate --all` into CI expecting green while changes are in flight.
+
+Before writing any artifact, see exactly what the agent will receive:
+
+```bash
+openspec instructions proposal --change add-expense-editing
+```
+
+This prints `<task>`, `<project_context>`, `<output>`, `<instruction>`, `<template>`, `<unlocks>`. The `<project_context>` block contains **the exact text from `config.yaml`**, with an explicit note that it is guidance, not content. That is the proof that Stage 0 mattered.
+
+### Stage 2: Specified
+
+Write the delta. The format is strict:
 
 ```markdown
 ## ADDED Requirements
 
-### Requirement: <Name>
-The system SHALL <behavior>.
+### Requirement: Net balance per member
 
-#### Scenario: <Name>
-- **WHEN** <condition>
-- **THEN** <observable outcome>
+The system SHALL compute each group member's net balance as the total they paid
+minus the total of their shares across all expenses in the group.
+
+#### Scenario: Balances always sum to zero
+
+- **WHEN** balances are computed for any group
+- **THEN** the sum of all member balances is exactly 0
 ```
 
-**The line to land:** "`SHALL` plus a scenario is the whole trick. Every requirement carries at least one concrete, checkable scenario. That is what makes this reviewable instead of a wishlist, and it is what the agent tests against later."
+Four delta operations: `## ADDED`, `## MODIFIED`, `## REMOVED`, `## RENAMED Requirements`.
 
-Also point at the header: it says `## ADDED Requirements`. Say: "The file is a *diff*, not a document. That is why archiving can merge it mechanically."
-
----
-
-## Beat 6: Break it on purpose (2 min)
-
-**Say:** "How do I know the agent didn't just write pretty prose?"
-
-**Run:**
+- **ADDED** — new behavior. New capabilities should open with a `## Purpose` section, which archive copies into the main spec it creates. Omit it and archive silently writes `TBD - created by archiving change <id>. Update Purpose after archive.` instead. Nothing warns you: see Part 7.
+- **MODIFIED** — copy the **entire** existing requirement block and edit it. Partial content loses detail at archive time.
+- **REMOVED** — requires `**Reason**` and `**Migration**`.
+- **RENAMED** — `FROM:` / `TO:` format.
 
 ```bash
-openspec validate <change-id> --strict
+openspec validate add-settlement-history --strict
+openspec show add-settlement-history --json --deltas-only
 ```
 
-It passes. Now **delete the `#### Scenario:` block** from one requirement and run it again.
+**Use `--deltas-only` before trusting any large delta.** Part 7 explains why this is not optional.
 
-**Point at:** the validation error naming the requirement with no scenario.
-
-**Say:** "A requirement with no scenario is an opinion. The tooling rejects it. This is the guardrail that stops spec rot."
-
-Put the scenario back and re-run to green before moving on.
-
-**Landmine:** confirm the exact `validate` invocation and its failure output during rehearsal. If strict validation does not catch this specific omission in your installed version, find one it *does* catch and break that instead. Do not improvise this live.
-
----
-
-## Beat 7: The read-only tour (1 min)
-
-Quick fire, roughly fifteen seconds each:
+### Stage 3: In progress
 
 ```bash
 openspec list
-openspec list --specs
-openspec show <change-id>
-openspec diff <change-id>
 ```
 
-**The line to land:** "Everything is plain markdown in git. The CLI is a convenience, not a database. If OpenSpec disappeared tomorrow, I would still have my specs."
+```
+add-settlement-history     5/17 tasks    <relative time>
+```
 
----
-
-## Beat 8: "Implementation" (1 min)
-
-**Say:** "Normally I would run `/openspec:apply` here and the agent works the task list. We are skipping the code today, because the code is the least interesting part of this story."
-
-**Do:** tick the boxes in `tasks.md` by hand, on screen. It takes five seconds and it visually completes the loop.
-
-**The line to land:** "The tasks came from the spec. The code would come from the tasks. Nobody is prompting from a blank page."
-
----
-
-## Beat 9: Archive (2 min) — the money beat
-
-**Say:** "The work is done. Now I promote the proposal to truth."
-
-**Run:**
+Note the split between two notions of "done":
 
 ```bash
-openspec archive <change-id>
-openspec list --specs
+openspec status --change add-settlement-history
 ```
 
-**Point at, side by side:**
-
-- `changes/` no longer holds an active change (it moves to the archive).
-- `specs/<capability>/spec.md` **now exists**, and the `## ADDED Requirements` header is gone. The requirements are just... requirements now.
-
-**The line to land:** "That is the whole lifecycle. Propose, review, build, archive. The spec directory is now the living description of the system, and it got there through a reviewed change, not a well-intentioned doc update someone forgot."
-
----
-
-## Beat 10: The second change, where it earns its keep (3 min)
-
-The first change proves the format. The second change proves the *value*, because now there is existing truth to change.
-
-**Run (in Claude Code):**
-
 ```
-/openspec:proposal Expenses can be recorded in any currency. Balances are tracked per currency, and settlement must state what happens when a group's expenses span more than one.
+Progress: 4/4 artifacts complete
+All artifacts complete!
 ```
 
-This is chosen deliberately: it **changes an existing requirement** rather than only adding new ones. The settlement rule ("minimize the number of transactions needed to settle up") no longer means anything until you say what a balance across two currencies even is.
+**`status` reports file existence. `list` reports ticked checkboxes.** A change can be "all artifacts complete" with 5 of 17 tasks done. Neither is wrong; they answer different questions. `status` asks "is it planned?", `list` asks "is it built?".
 
-**Point at:** the delta now containing a `## MODIFIED Requirements` section, restating the settlement requirement **in full** with the new behavior, not as a patch fragment.
+#### The spec-exempt path
 
-**Say:** "Notice it rewrote the whole requirement, not a diff hunk. That is on purpose. When this archives, the new text replaces the old text wholesale, and there is never a moment where the spec is half-updated."
-
-**Then run:**
+Some changes genuinely alter no behavior. `refactor-split-engine` sets `skip_specs: true` in its `.openspec.yaml`:
 
 ```bash
-openspec diff <change-id>
+openspec status --change refactor-split-engine
 ```
 
-**The line to land:** "This is the thing you cannot get by prompting an agent feature by feature. It knew what the old rule was, because the old rule was written down in a place it reads. The proposal explains what is changing and why, before a line of code moves."
+```
+Progress: 3/3 artifacts complete (1 skipped)
 
-**Optional flourish, if the room is engaged:** ask the audience for a third feature on the spot and generate a proposal live. It is low risk, since nothing has to compile.
+[x] proposal
+[~] specs (skipped: change declares skip_specs)
+[x] design
+[x] tasks
+```
+
+```bash
+openspec validate refactor-split-engine --strict
+# Change 'refactor-split-engine' is valid
+```
+
+Zero deltas, and it passes. The denominator drops to 3, and `tasks` is now blocked by `design` alone.
+
+**When to use `skip_specs`:** pure refactors, tooling, docs. **When not to:** anything where behavior changes, even slightly. The tool's own instruction is blunt about it: *"Do not invent a requirement just to satisfy validation."* Reaching for `skip_specs` because writing the spec is annoying is how the spec directory stops being true.
+
+### Stage 4: Archived
+
+```bash
+openspec archive add-expense-splitting -y
+```
+
+```
+Task status: ✓ Complete
+
+Specs to update:
+  expense-recording: create
+  group-management: create
+  settlement: create
+Applying changes to openspec/specs/settlement/spec.md:
+  + 4 added
+Totals: + 13, ~ 0, - 0, → 0
+Specs updated successfully.
+Change 'add-expense-splitting' archived as '2026-07-31-add-expense-splitting'.
+```
+
+What archive does:
+
+1. Resolves every `MODIFIED` / `REMOVED` / `RENAMED` header against the real spec.
+2. Applies the deltas, dropping the `## ADDED Requirements` header for a plain `## Requirements`.
+3. Carries `## Purpose` into new specs and adds a `# <capability> Specification` title.
+4. Moves the change to `changes/archive/<date>-<id>/`. Nothing is deleted.
+
+**Flags:** `-y` skips prompts (it is interactive otherwise). `--skip-specs` archives without touching specs. `--no-validate` exists and should be treated as a mistake.
+
+**Archive is the real safety net, not validate.** See Part 7.
+
+The payoff is a behavior changelog you did not have to write:
+
+```bash
+git diff HEAD~1 -- openspec/specs/settlement/spec.md
+```
+
+```diff
+-The system SHALL compute each group member's net balance as the total they paid
+-minus the total of their shares across all expenses in the group.
++The system SHALL compute each group member's net balance **per currency** as the
++total they paid in that currency minus the total of their shares in that currency.
++The system SHALL NOT combine balances across currencies.
+
+-### Requirement: Single currency across a group
+-The system SHALL treat all amounts within a group as the same, unspecified currency.
+```
 
 ---
 
-## Beat 11: Close (1 min)
+## Part 4: A 20-minute live demo path
 
-Three sentences, then stop talking:
+If you are presenting rather than reading, run this subset:
 
-1. "Specs are the source of truth, and they live in git next to the code."
-2. "Changes are proposals with a lifecycle, so review happens before implementation instead of at PR time."
-3. "The agent reads all of it on every turn, so context stops being something I retype."
+| # | Do | Say |
+|---|---|---|
+| 1 | `ls -la` on empty dir | "Nothing here yet. We decide what to build before there is anything to argue about." |
+| 2 | `openspec init --tools claude` | "One command. Note it creates one config file, not a tree." |
+| 3 | Show `config.yaml` `context:` | "Written once. Read on every artifact." |
+| 4 | `openspec status --change ...` | "A dependency graph. You cannot write tasks before specs." |
+| 5 | `openspec instructions proposal --change ...` | "Here is my context, injected. That is the proof." |
+| 6 | Read a delta, then **break it twice** | The single best beat. See Part 7. |
+| 7 | `openspec list` / `list --specs` | "Plain markdown in git. The CLI is a convenience, not a database." |
+| 8 | Tick tasks by hand | "Tasks came from specs. Code would come from tasks." |
+| 9 | `openspec archive <id> -y` | "Propose, review, build, archive. Now it's truth." |
+| 10 | Second change, `MODIFIED` + `git diff` | "It knew the old rule, because the old rule was written down." |
 
-**Anticipated question: "Isn't this just a lot of ceremony?"**
-Answer: "For a one-file script, yes. For anything a team maintains, you are already writing this down somewhere: in tickets, in Slack, in someone's head. This puts it one directory away from the code and makes the agent read it."
-
-**Anticipated question: "What if the spec and the code drift?"**
-Answer: "Nothing prevents that automatically. What OpenSpec gives you is a review point and a diff. Drift becomes visible instead of invisible. That is an honest limitation, not a solved problem."
-
-**Anticipated question: "Does it work with agents other than Claude Code?"**
-Answer: check the tool's supported-assistant list during prep and answer specifically. Do not guess on stage.
+**Never cut 6, 9, or 10.** With only ten minutes, run 4, 6, 9, 10 and nothing else.
 
 ---
 
-## Timing sheet
+## Part 5: Complete command reference
 
-| Beat | Content | Target | Cumulative |
+### Core lifecycle
+
+| Command | When to use it |
+|---|---|
+| `openspec init [--tools <list>]` | Once per repo. `--tools all\|none\|cursor,codex,...` |
+| `openspec new change <name>` | Start a change. `--description`, `--goal`, `--schema` |
+| `openspec status --change <id>` | "What artifact do I write next, and what is blocking it?" The single most useful command mid-change. `--json` for scripting |
+| `openspec instructions <artifact> --change <id>` | Before writing an artifact by hand, to see the template and injected context |
+| `openspec validate <id> [--strict]` | Before asking anyone to review. `--all`, `--changes`, `--specs`, `--json` |
+| `openspec archive <id> -y` | Tasks are done and the change should become truth. `--skip-specs`, `--no-validate` |
+
+### Reading
+
+| Command | When to use it |
+|---|---|
+| `openspec list` | Active changes with task progress |
+| `openspec list --specs` | Current capabilities and requirement counts |
+| `openspec show <id>` | A change or spec, auto-detected. `--type change\|spec` to disambiguate |
+| `openspec show <id> --json --deltas-only` | **Verify what the parser actually saw.** Not optional for large deltas |
+| `openspec show <spec> --json --requirements` | Requirements without scenario bodies |
+| `openspec view` | Interactive dashboard. Know you are entering a TUI before typing it on stage |
+
+**There is no `openspec diff`.** Use `show`, `--deltas-only`, or `git diff` after archiving.
+
+### Configuration and schemas
+
+| Command | When to use it |
+|---|---|
+| `openspec config list \| get \| set \| unset \| path \| edit` | **Global** config at `~/.config/openspec/config.json`, not per-repo |
+| `openspec config profile [preset]` | Switch which workflows are generated |
+| `openspec schemas` | List workflow schemas. `spec-driven` is the default: proposal → specs → design → tasks |
+| `openspec templates [--schema <name>]` | Resolve template file paths for a schema |
+| `openspec schema which\|validate\|fork\|init` | **Experimental.** Fork the schema to customize artifacts |
+| `openspec update [--force]` | Refresh generated instruction files after upgrading the CLI |
+
+### Multi-repo and housekeeping
+
+| Command | When to use it |
+|---|---|
+| `openspec store setup\|register\|list\|doctor\|unregister\|remove` | Specs living outside the code repo. Most commands then take `--store <id>` |
+| `openspec context [--json]` | Print the working context for the resolved root |
+| `openspec doctor` | Check relationship health of the resolved root |
+| `openspec workset create\|list\|open\|remove` | Purely local named working views. Never shared |
+| `openspec completion install [shell]` | Shell tab-completion |
+| `openspec feedback <message>` | File feedback upstream |
+
+### Deprecated
+
+`openspec spec ...` and `openspec change ...` still work but print:
+
+> Warning: The "openspec spec ..." commands are deprecated. Prefer verb-first commands.
+
+Use `openspec show` / `openspec validate --specs` instead. Note `openspec change list` is deprecated in favour of `openspec list`, but **`openspec new change`** is current — the deprecation is on the `change` noun-first group, not the `new` verb.
+
+---
+
+## Part 6: The slash commands
+
+`init --tools claude` generates six, in `.claude/commands/opsx/` with backing skills in `.claude/skills/`. They are `/opsx:*`, **not** `/openspec:*`. Restart your IDE after `init` or they will not appear.
+
+| Command | Stage | What it does |
+|---|---|---|
+| `/opsx:explore` | before Stage 1 | Thinking partner. Explicitly forbidden from writing code. May create artifacts if asked |
+| `/opsx:propose` | Stage 1 → 2 | Creates the change and generates **all** artifacts in dependency order |
+| `/opsx:apply` | Stage 3 | Works the task list |
+| `/opsx:update` | Stage 2 or 3 | Revises existing artifacts and keeps them coherent. Never edits code |
+| `/opsx:sync` | Stage 3 | Folds delta specs into main specs **without archiving**. Agent-driven, so it can merge intelligently (add one scenario rather than replace a whole requirement) |
+| `/opsx:archive` | Stage 4 | Wraps `openspec archive` |
+
+**`/opsx:sync` versus `archive`:** sync updates `specs/` while the change stays active. Use it when a long-running change should land its spec early. Archive is the terminal move. Sync is the escape hatch, and like most escape hatches it is where specs and changes drift apart if you lean on it.
+
+The skills are plain markdown you can read and edit. `.claude/skills/openspec-propose/SKILL.md` is the one worth reading first: it is the whole propose algorithm in about 120 lines.
+
+---
+
+## Part 7: Sharp edges, all verified
+
+### Validation catches less than you think
+
+| Defect | `validate` | `--strict` | `archive` |
 |---|---|---|---|
-| 1 | Empty room | 1:00 | 1:00 |
-| 2 | `init` | 1:00 | 2:00 |
-| 3 | `project.md` | 2:00 | 4:00 |
-| 4 | First proposal | 3:00 | 7:00 |
-| 5 | Read the delta | 3:00 | 10:00 |
-| 6 | Break validation | 2:00 | 12:00 |
-| 7 | Read-only tour | 1:00 | 13:00 |
-| 8 | "Implementation" | 1:00 | 14:00 |
-| 9 | Archive | 2:00 | 16:00 |
-| 10 | Second change | 3:00 | 19:00 |
-| 11 | Close | 1:00 | 20:00 |
+| Requirement with zero scenarios | **caught** | **caught** | n/a |
+| Change with zero deltas and no `skip_specs` | **caught** | **caught** | n/a |
+| `###` instead of `####` on a scenario | missed | missed | n/a |
+| `MODIFIED` header matching no existing requirement | missed | missed | **caught, aborts atomically** |
+| `REMOVED` without `**Reason**` / `**Migration**` | missed | missed | not caught |
+| New capability with `## Purpose` under 50 chars | missed | missed | not caught |
+| New capability with no `## Purpose` at all | missed | missed | writes a `TBD` placeholder |
 
-**If you are running long, cut in this order:** Beat 7, then Beat 3 (pre-fill `project.md` instead), then Beat 8. **Never cut Beats 5, 9, or 10.**
+**`--strict` did not differ from plain `validate` in any of the seven cases above.** Treat it as decoration until you find a case where it bites.
+
+### The silent one, in detail
+
+Change one `#### Scenario:` to `### Scenario:` and validation still reports the change as valid, exit 0. But every scenario under that requirement disappears from the parsed delta, because the `###` line ends the requirement block early. Not one lost scenario: all of them.
+
+Measured twice in this repo. On the `settlement` delta of `add-expense-splitting`, one demotion took a requirement from **4 scenarios to 0**. On `add-settlement-history`, one demotion took the whole change from **16 scenarios to 7** — nine gone, still reported valid.
+
+```bash
+openspec show <change> --json --deltas-only   # the only way to see it
+```
+
+The tool's own instructions warn about this in exactly these words: *"Scenarios MUST use exactly 4 hashtags. Using 3 hashtags or bullets will fail silently."*
+
+**As a demo beat this is gold.** Everyone in the room has been sold a tool that only worked in the happy path. Showing the sharp edge and the mitigation buys more credibility than a clean run does.
+
+### Archive is the real safety net
+
+Break a `MODIFIED` header so it matches nothing:
+
+```
+openspec validate add-multi-currency --strict
+Change 'add-multi-currency' is valid          ← missed
+
+openspec archive add-multi-currency -y
+settlement MODIFIED failed for header "### Requirement: Settlement plans" - not found
+Aborted. No files were changed.               ← caught, atomically
+```
+
+No partial write. Your specs are never left half-merged. Validation is a linter; archive is the gate.
+
+### Other things that will bite
+
+- **`openspec update` mutates global config.** It flipped `profile: core (default)` to `profile: custom (explicit)` in `~/.config/openspec/config.json`. Same six workflows, no repo files touched, but it is a global side effect from a repo-local-looking command.
+- **`archive` prompts without `-y`.** Fine interactively, hangs in CI.
+- **Archived changes are date-stamped** (`2026-07-31-add-expense-splitting`). Two changes archived the same day keep distinct names only because the change id differs.
+- **A proposal warning at >10 deltas** is non-blocking: *"Consider splitting changes with more than 10 deltas."* Good advice, easy to ignore, and ignoring it is how a change becomes unreviewable.
+- **The tool's own instruction text is wrong about `Purpose`.** `openspec instructions specs` claims a Purpose under 50 characters is reported by `--strict`. It is not, at either validation level. Trust the table above over the instruction text.
+- **`.DS_Store` inside `.git/`.** Not an OpenSpec issue, but it bit this repo twice: browsing or moving the folder in Finder writes `.git/refs/.DS_Store`, which git parses as a malformed ref (`badRefName`) and which `.gitignore` cannot prevent. If `git fsck` starts complaining, run `find .git -name '.DS_Store' -delete`.
 
 ---
 
-## Appendix A: Candidate demo apps
+## Part 8: Unverified
 
-Each candidate is sized so the whole spec fits on a few screens, and each ships with a deliberate second change that **modifies** an existing requirement, which is what Beat 10 needs.
+Do not assert these on stage. They are read from help text and skill files, not exercised.
 
-### 1. Expense splitter (Splitwise-lite) — **SELECTED**
-
-- **Capabilities:** `group-management`, `expense-recording`, `settlement`
-- **First change:** record an expense against a group and split it evenly.
-- **Second change (modifies):** multi-currency support. This forces the settlement requirement to be restated: balances now carry a currency, and the "minimum transactions to settle" rule has to say what happens across currencies.
-- **Why it demos well:** everyone in the room has argued about a dinner bill. The multi-currency change is an obviously *behavioral* change to an existing rule, not an addition, so `## MODIFIED Requirements` lands without explanation.
-
-### 2. Feature-flag service
-
-- **Capabilities:** `flag-management`, `evaluation`, `targeting`, `audit-log`
-- **First change:** boolean flags with per-environment on/off evaluation.
-- **Second change (modifies):** percentage rollouts. The evaluation requirement must be restated to include deterministic bucketing by user ID.
-- **Why it demos well:** a developer audience already thinks in terms of specs here, and "what happens on a cache miss" style scenarios write themselves. Slightly more jargon than option 1.
-
-### 3. Habit tracker CLI
-
-- **Capabilities:** `habit-management`, `streak-tracking`, `reporting`
-- **First change:** define habits, check in daily, compute a streak.
-- **Second change (modifies):** pausing a habit (vacation mode). The streak requirement must be restated: paused days neither break nor extend a streak.
-- **Why it demos well:** the smallest of the four, and the streak rule has genuinely fiddly edge cases (timezones, backfilled check-ins), so the scenarios are visibly earning their place.
-
-### 4. Async standup bot
-
-- **Capabilities:** `standup-collection`, `scheduling`, `digest-delivery`
-- **First change:** collect three answers from each team member and post a digest at a fixed time.
-- **Second change (modifies):** per-member timezone windows. The scheduling requirement is restated: one team-wide cron becomes a per-member window with a digest cutoff.
-- **Why it demos well:** the change is a real architectural shift expressed purely in spec language, which sells the "review before you build" argument hard.
+- `/opsx:apply` end to end. We wrote no code, so the implementation loop is untested here.
+- `/opsx:sync` and `/opsx:explore` behavior in practice.
+- `openspec store` and `--store` beyond reading help output.
+- `openspec schema fork` / `init`, and whether a custom schema round-trips.
+- `openspec workset`, `openspec completion`, `openspec feedback`.
+- `openspec view`, the interactive dashboard.
+- `RENAMED Requirements`. It is documented and I have not exercised it; every other delta operation here has been.
 
 ---
 
-## Appendix B: Corrections log
+## Appendix: Alternate demo apps
 
-Anything below that turned out to be wrong during rehearsal, fix in place above and note here.
+Each is sized so the spec fits on a few screens, and each has a second change that **modifies** an existing requirement, which is what the Stage 4 payoff needs.
 
-- [ ] Verified every CLI command against `openspec --help`.
-- [ ] Verified the slash command names after `openspec init`.
-- [ ] Verified that Beat 6's deliberate break actually fails validation.
+1. **Expense splitter** — *selected, built out in this repo.* `group-management`, `expense-recording`, `settlement`. Second change: multi-currency.
+2. **Feature-flag service** — `flag-management`, `evaluation`, `targeting`, `audit-log`. Second change: percentage rollouts, restating evaluation with deterministic bucketing. Strongest for a purely developer audience, more jargon.
+3. **Habit tracker CLI** — `habit-management`, `streak-tracking`, `reporting`. Second change: vacation mode, so paused days neither break nor extend a streak. Smallest option, genuinely fiddly edge cases.
+4. **Async standup bot** — `standup-collection`, `scheduling`, `digest-delivery`. Second change: per-member timezone windows. A real architectural shift expressed purely in spec language.
