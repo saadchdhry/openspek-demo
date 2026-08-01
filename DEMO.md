@@ -57,9 +57,9 @@ openspec list
 
 ```
 Changes:
-  refactor-split-engine      5/15 tasks    just now
-  add-settlement-history     5/17 tasks    1m ago
-  add-expense-editing        No tasks      2m ago
+  refactor-split-engine      5/15 tasks    <relative time>
+  add-settlement-history     5/17 tasks    <relative time>
+  add-expense-editing        No tasks      <relative time>
 ```
 
 ```bash
@@ -106,7 +106,7 @@ Config: openspec/config.yaml (schema: spec-driven)
 
 **`init` does not scaffold `specs/` or `changes/`.** It creates exactly one file under `openspec/`: `config.yaml`. The directories appear when they have something to hold. If you promised the audience a tree, you will be standing in front of a single YAML file.
 
-`--tools` accepts `all`, `none`, or a comma-separated list of ~33 assistants (cursor, codex, gemini, github-copilot, cline, kiro, zcode, and so on). The `openspec/` directory is identical whichever you pick; only the generated command files differ.
+`--tools` accepts `all`, `none`, or a comma-separated list of 33 assistants (cursor, codex, gemini, github-copilot, cline, kiro, zcode, and so on), plus `windsurf` as an accepted alias for `devin`. The `openspec/` directory is identical whichever you pick; only the generated command files differ.
 
 **Then teach it the project once.** There is **no `project.md`** — context lives in `openspec/config.yaml`:
 
@@ -185,7 +185,7 @@ minus the total of their shares across all expenses in the group.
 
 Four delta operations: `## ADDED`, `## MODIFIED`, `## REMOVED`, `## RENAMED Requirements`.
 
-- **ADDED** — new behavior. New capabilities must open with a `## Purpose` section of 50+ characters, or archive leaves a `TBD` placeholder in the main spec.
+- **ADDED** — new behavior. New capabilities should open with a `## Purpose` section, which archive copies into the main spec it creates. Omit it and archive silently writes `TBD - created by archiving change <id>. Update Purpose after archive.` instead. Nothing warns you: see Part 7.
 - **MODIFIED** — copy the **entire** existing requirement block and edit it. Partial content loses detail at archive time.
 - **REMOVED** — requires `**Reason**` and `**Migration**`.
 - **RENAMED** — `FROM:` / `TO:` format.
@@ -195,7 +195,7 @@ openspec validate add-settlement-history --strict
 openspec show add-settlement-history --json --deltas-only
 ```
 
-**Use `--deltas-only` before trusting any large delta.** Part 6 explains why this is not optional.
+**Use `--deltas-only` before trusting any large delta.** Part 7 explains why this is not optional.
 
 ### Stage 3: In progress
 
@@ -204,7 +204,7 @@ openspec list
 ```
 
 ```
-add-settlement-history     5/17 tasks    1m ago
+add-settlement-history     5/17 tasks    <relative time>
 ```
 
 Note the split between two notions of "done":
@@ -275,7 +275,7 @@ What archive does:
 
 **Flags:** `-y` skips prompts (it is interactive otherwise). `--skip-specs` archives without touching specs. `--no-validate` exists and should be treated as a mistake.
 
-**Archive is the real safety net, not validate.** See Part 6.
+**Archive is the real safety net, not validate.** See Part 7.
 
 The payoff is a behavior changelog you did not have to write:
 
@@ -307,7 +307,7 @@ If you are presenting rather than reading, run this subset:
 | 3 | Show `config.yaml` `context:` | "Written once. Read on every artifact." |
 | 4 | `openspec status --change ...` | "A dependency graph. You cannot write tasks before specs." |
 | 5 | `openspec instructions proposal --change ...` | "Here is my context, injected. That is the proof." |
-| 6 | Read a delta, then **break it twice** | The single best beat. See Part 6. |
+| 6 | Read a delta, then **break it twice** | The single best beat. See Part 7. |
 | 7 | `openspec list` / `list --specs` | "Plain markdown in git. The CLI is a convenience, not a database." |
 | 8 | Tick tasks by hand | "Tasks came from specs. Code would come from tasks." |
 | 9 | `openspec archive <id> -y` | "Propose, review, build, archive. Now it's truth." |
@@ -401,14 +401,20 @@ The skills are plain markdown you can read and edit. `.claude/skills/openspec-pr
 | Defect | `validate` | `--strict` | `archive` |
 |---|---|---|---|
 | Requirement with zero scenarios | **caught** | **caught** | n/a |
+| Change with zero deltas and no `skip_specs` | **caught** | **caught** | n/a |
 | `###` instead of `####` on a scenario | missed | missed | n/a |
 | `MODIFIED` header matching no existing requirement | missed | missed | **caught, aborts atomically** |
 | `REMOVED` without `**Reason**` / `**Migration**` | missed | missed | not caught |
-| Change with zero deltas and no `skip_specs` | **caught** | **caught** | n/a |
+| New capability with `## Purpose` under 50 chars | missed | missed | not caught |
+| New capability with no `## Purpose` at all | missed | missed | writes a `TBD` placeholder |
+
+**`--strict` did not differ from plain `validate` in any of the seven cases above.** Treat it as decoration until you find a case where it bites.
 
 ### The silent one, in detail
 
-Change one `#### Scenario:` to `### Scenario:` and validation still reports the change as valid, exit 0. But the requirement went from **4 scenarios to 0** — not one lost scenario, all four, because the `###` line ended the requirement block early.
+Change one `#### Scenario:` to `### Scenario:` and validation still reports the change as valid, exit 0. But every scenario under that requirement disappears from the parsed delta, because the `###` line ends the requirement block early. Not one lost scenario: all of them.
+
+Measured twice in this repo. On the `settlement` delta of `add-expense-splitting`, one demotion took a requirement from **4 scenarios to 0**. On `add-settlement-history`, one demotion took the whole change from **16 scenarios to 7** — nine gone, still reported valid.
 
 ```bash
 openspec show <change> --json --deltas-only   # the only way to see it
@@ -439,7 +445,8 @@ No partial write. Your specs are never left half-merged. Validation is a linter;
 - **`archive` prompts without `-y`.** Fine interactively, hangs in CI.
 - **Archived changes are date-stamped** (`2026-07-31-add-expense-splitting`). Two changes archived the same day keep distinct names only because the change id differs.
 - **A proposal warning at >10 deltas** is non-blocking: *"Consider splitting changes with more than 10 deltas."* Good advice, easy to ignore, and ignoring it is how a change becomes unreviewable.
-- **`--strict` may be a no-op.** In every case tested here it behaved identically to plain `validate`.
+- **The tool's own instruction text is wrong about `Purpose`.** `openspec instructions specs` claims a Purpose under 50 characters is reported by `--strict`. It is not, at either validation level. Trust the table above over the instruction text.
+- **`.DS_Store` inside `.git/`.** Not an OpenSpec issue, but it bit this repo twice: browsing or moving the folder in Finder writes `.git/refs/.DS_Store`, which git parses as a malformed ref (`badRefName`) and which `.gitignore` cannot prevent. If `git fsck` starts complaining, run `find .git -name '.DS_Store' -delete`.
 
 ---
 
@@ -453,7 +460,7 @@ Do not assert these on stage. They are read from help text and skill files, not 
 - `openspec schema fork` / `init`, and whether a custom schema round-trips.
 - `openspec workset`, `openspec completion`, `openspec feedback`.
 - `openspec view`, the interactive dashboard.
-- Whether `--strict` ever differs from plain `validate`.
+- `RENAMED Requirements`. It is documented and I have not exercised it; every other delta operation here has been.
 
 ---
 
