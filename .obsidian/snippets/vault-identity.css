@@ -1,0 +1,9 @@
+/* === Vault Identity === */
+/* Per-vault values consumed by my-theme.css (shared via dotfiles symlink).
+   This file is LOCAL to this vault and git-tracked with it — edit freely.
+   install.sh creates it from the template only when missing and never
+   overwrites it. */
+
+body {
+  --vault-label: "openspek";
+}
